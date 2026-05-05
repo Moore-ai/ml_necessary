@@ -22,7 +22,6 @@ from sklearn.metrics import (
 from classify_ALDER.cnn.data_loader import build_dataloaders, AIDER_CLASSES
 
 
-_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 _DATA_DIR = os.path.join(
     os.path.dirname(__file__), "..", "..", "AIDER_data", "AIDER", "AIDER"
 )
@@ -31,13 +30,11 @@ _BATCH_SIZE = 64
 
 def _extract_features(
     loader: DataLoader[Tuple[torch.Tensor, int]],
-    device: torch.device,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """遍历 DataLoader，将图像展平为 (N, 150528) 特征矩阵。
 
     Args:
         loader: DataLoader，返回 (images, labels)。
-        device: 计算设备。
 
     Returns:
         (feature_matrix, labels) 元组。
@@ -46,9 +43,8 @@ def _extract_features(
     all_labels: list[int] = []
 
     for images, labels in loader:
-        images = images.to(device)
-        # (B, 3, 224, 224) → (B, 150528)
-        batch = images.view(images.size(0), -1).cpu().numpy()
+        # (B, 3, 224, 224) → (B, 150528); PCA/LR 在 CPU 上运行，无需 GPU 传输
+        batch = images.view(images.size(0), -1).numpy()
         all_features.append(batch)
         all_labels.extend(labels.tolist())
 
@@ -62,7 +58,6 @@ def main() -> None:
     print("=" * 60)
     print("AIDER PCA + LogisticRegression 分类实验")
     print("=" * 60)
-    print(f"设备: {_DEVICE}")
 
     # 1. 加载数据（复用 CNN 的 build_dataloaders，保证完全一致的划分）
     print(f"\n[1/5] 加载数据（8:2 分层抽样，0.6× 训练集二次抽样）...")
@@ -81,8 +76,8 @@ def main() -> None:
     # 2. 展平图像
     print(f"\n[2/5] 展平图像 (3×224×224 → 150528) 并转移到 CPU...")
     t0 = time.perf_counter()
-    X_train, y_train = _extract_features(train_loader, _DEVICE)
-    X_test, y_test = _extract_features(test_loader, _DEVICE)
+    X_train, y_train = _extract_features(train_loader)
+    X_test, y_test = _extract_features(test_loader)
     t_feat = time.perf_counter() - t0
     print(f"  训练集特征矩阵: {X_train.shape}")
     print(f"  测试集特征矩阵: {X_test.shape}")
@@ -151,6 +146,7 @@ def main() -> None:
     print(f"总用时: {t_load + t_feat + t_pca + t_train:.1f}s")
 
     # 6. 与 CNN 结果对比
+    # CNN 数据来源：0.6× 训练集二次抽样实验，commit 901dd8a，详见 docs/training-logs/2026-05-05-AIDER-CNN-training-log.md
     CNN_RESULTS = {
         "accuracy": 0.7479,
         "kappa": 0.5921,
