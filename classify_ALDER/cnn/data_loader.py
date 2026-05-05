@@ -4,7 +4,7 @@
 """
 
 import os
-from typing import Tuple, List
+from typing import Tuple, List, cast
 
 import numpy as np
 import torch
@@ -74,8 +74,7 @@ class AIDERDataset(Dataset[Tuple[torch.Tensor, int]]):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         image_path = self.image_paths[idx]
         image = Image.open(image_path).convert("RGB")
-        img_tensor = self.transform(image)
-        return img_tensor, self.labels[idx]
+        return cast(torch.Tensor, self.transform(image)), self.labels[idx]
 
 
 def _train_transform() -> transforms.Compose:
@@ -162,6 +161,7 @@ def build_dataloaders(
     batch_size: int = 64,
     train_ratio: float = 0.8,
     num_workers: int = 0,
+    train_subsample: float | None = None,
 ) -> Tuple[DataLoader[Tuple[torch.Tensor, int]], DataLoader[Tuple[torch.Tensor, int]], torch.Tensor]:
     """构建训练集和测试集 DataLoader。
 
@@ -170,6 +170,7 @@ def build_dataloaders(
         batch_size: 每批样本数。
         train_ratio: 训练集比例。
         num_workers: DataLoader 工作进程数。
+        train_subsample: 若指定，在划分后对训练集进一步抽样的比例（用于缩短训练时间）。
 
     Returns:
         (train_loader, test_loader, class_weight) 元组。
@@ -180,6 +181,12 @@ def build_dataloaders(
     train_idx, test_idx = _stratified_split(
         full_dataset.labels, train_ratio=train_ratio
     )
+
+    # 训练集二次抽样
+    if train_subsample is not None and 0.0 < train_subsample < 1.0:
+        rng = np.random.default_rng(42)
+        n_keep = int(len(train_idx) * train_subsample)
+        train_idx = rng.choice(train_idx, n_keep, replace=False).tolist()
 
     # 从 full_dataset 切片，不重新扫描目录
     train_dataset = AIDERDataset.__new__(AIDERDataset)

@@ -119,7 +119,7 @@ def main() -> None:
     print(f"\n[1/3] 加载数据（8:2 分层抽样）...")
     t0 = time.perf_counter()
     train_loader, test_loader, class_weight = build_dataloaders(
-        data_dir=_DATA_DIR, batch_size=_BATCH_SIZE,
+        data_dir=_DATA_DIR, batch_size=_BATCH_SIZE, train_subsample=0.6,
     )
     t_load = time.perf_counter() - t0
     print(f"  训练集: {len(train_loader.dataset)} 张")  # type: ignore[arg-type]
