@@ -10,9 +10,10 @@ from typing import Tuple, cast
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from sklearn.decomposition import PCA
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
+from sklearn.decomposition import PCA  # type: ignore[import-untyped]
+from sklearn.linear_model import LogisticRegression  # type: ignore[import-untyped]
+from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
+from sklearn.metrics import (  # type: ignore[import-untyped]
     classification_report,
     confusion_matrix,
     cohen_kappa_score,
@@ -60,7 +61,7 @@ def main() -> None:
     print("=" * 60)
 
     # 1. 加载数据（复用 CNN 的 build_dataloaders，保证完全一致的划分）
-    print(f"\n[1/5] 加载数据（8:2 分层抽样，0.6× 训练集二次抽样）...")
+    print(f"\n[1/6] 加载数据（8:2 分层抽样，0.6× 训练集二次抽样）...")
     t0 = time.perf_counter()
     train_loader, test_loader, _ = build_dataloaders(
         data_dir=_DATA_DIR, batch_size=_BATCH_SIZE, train_subsample=0.6,
@@ -74,7 +75,7 @@ def main() -> None:
     print(f"  加载用时: {t_load:.1f}s")
 
     # 2. 展平图像
-    print(f"\n[2/5] 展平图像 (3×224×224 → 150528) 并转移到 CPU...")
+    print(f"\n[2/6] 展平图像 (3×224×224 → 150528)...")
     t0 = time.perf_counter()
     X_train, y_train = _extract_features(train_loader)
     X_test, y_test = _extract_features(test_loader)
@@ -83,10 +84,12 @@ def main() -> None:
     print(f"  测试集特征矩阵: {X_test.shape}")
     print(f"  展平用时: {t_feat:.1f}s")
 
-    # 3. PCA 降维（保留 95% 方差）
-    print(f"\n[3/5] PCA 降维（保留 95% 方差）...")
+    # 3. PCA 降维（randomized SVD，500 分量）
+    print(f"\n[3/6] PCA 降维（randomized SVD，n_components=500）...")
     t0 = time.perf_counter()
-    pca = PCA(n_components=0.95, svd_solver="randomized", random_state=42)
+    # 使用 randomized SVD + 显式 n_components（高维图像数据，全量 SVD 不现实）
+    n_components = 500
+    pca = PCA(n_components=n_components, svd_solver="randomized", random_state=42)
     X_train_pca = pca.fit_transform(X_train)
     X_test_pca = pca.transform(X_test)
     t_pca = time.perf_counter() - t0
@@ -94,11 +97,13 @@ def main() -> None:
     print(f"  保留方差比: {pca.explained_variance_ratio_.sum():.4f}")
     print(f"  PCA 用时: {t_pca:.1f}s")
 
-    # 4. LogisticRegression 训练（Softmax 多分类）
-    print(f"\n[4/5] 训练 LogisticRegression（Softmax，L2 正则化）...")
+    # 4. 标准化 PCA 特征 + LogisticRegression 训练
+    print(f"\n[4/6] 标准化 + LogisticRegression（L2 正则化）...")
     t0 = time.perf_counter()
+    scaler = StandardScaler()
+    X_train_pca = scaler.fit_transform(X_train_pca)
+    X_test_pca = scaler.transform(X_test_pca)
     lr = LogisticRegression(
-        multi_class="multinomial",
         solver="lbfgs",
         max_iter=1000,
         C=1.0,
@@ -111,7 +116,7 @@ def main() -> None:
     print(f"  训练用时: {t_train:.1f}s")
 
     # 5. 评估
-    print(f"\n[5/5] 评估模型...")
+    print(f"\n[5/6] 评估模型...")
     y_pred = lr.predict(X_test_pca)
     test_acc = (y_pred == y_test).mean()
 
