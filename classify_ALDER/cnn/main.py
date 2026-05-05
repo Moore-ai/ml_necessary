@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
-from sklearn.metrics import classification_report  # type: ignore[import-untyped]
+from sklearn.metrics import classification_report, confusion_matrix, cohen_kappa_score, matthews_corrcoef  # type: ignore[import-untyped]
 
 from classify_ALDER.cnn.data_loader import build_dataloaders, AIDER_CLASSES
 from classify_ALDER.cnn.model import AIDERCNN
@@ -178,7 +178,26 @@ def main() -> None:
         target_names=AIDER_CLASSES,
         digits=4,
     ))
-    print(f"总体准确率: {test_acc:.4f}")
+
+    # 混淆矩阵
+    cm = confusion_matrix(all_labels, all_preds)
+    print("混淆矩阵")
+    print(" " * 22 + "  " + "  ".join(f"{c:>10}" for c in AIDER_CLASSES))
+    for i, cls_name in enumerate(AIDER_CLASSES):
+        row = "  ".join(f"{cm[i, j]:>10}" for j in range(len(AIDER_CLASSES)))
+        print(f"  {cls_name:>20}  {row}")
+
+    # 各类别准确率
+    print("\n各类别准确率:")
+    for i, cls_name in enumerate(AIDER_CLASSES):
+        cls_acc = cm[i, i] / cm[i, :].sum() if cm[i, :].sum() > 0 else 0.0
+        print(f"  {cls_name:>20}: {cls_acc:.4f} ({cm[i, i]}/{cm[i, :].sum()})")
+
+    kappa = cohen_kappa_score(all_labels, all_preds)
+    mcc = matthews_corrcoef(all_labels, all_preds)
+    print(f"\n总体准确率: {test_acc:.4f}")
+    print(f"Cohen's Kappa: {kappa:.4f}")
+    print(f"MCC:           {mcc:.4f}")
     print(f"总训练用时: {t_train:.1f}s")
     print(f"模型已保存到: {_MODEL_SAVE_PATH}")
     print()
