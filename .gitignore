@@ -1,4 +1,6 @@
 mnist_data/
+AIDER_data/
 .claude/
 venv/
 __pycache__/
+*.pth

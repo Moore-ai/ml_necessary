@@ -42,7 +42,7 @@ class AIDERDataset(Dataset[Tuple[torch.Tensor, int]]):
 
         Args:
             data_dir: 数据根目录，包含 5 个类别子文件夹。
-            transform: 图像变换流水线。
+            transform: 图像变换流水线。若为 None，则仅做 ToTensor。
 
         Raises:
             RuntimeError: 目录中未找到任何有效图像文件时抛出。
@@ -52,7 +52,7 @@ class AIDERDataset(Dataset[Tuple[torch.Tensor, int]]):
         self.class_to_idx: dict[str, int] = {
             cls: i for i, cls in enumerate(AIDER_CLASSES)
         }
-        self.transform = transform
+        self.transform = transform or transforms.Compose([transforms.ToTensor()])
 
         for cls_name, cls_idx in self.class_to_idx.items():
             cls_dir = os.path.join(data_dir, cls_name)
@@ -74,11 +74,8 @@ class AIDERDataset(Dataset[Tuple[torch.Tensor, int]]):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         image_path = self.image_paths[idx]
         image = Image.open(image_path).convert("RGB")
-        if self.transform is not None:
-            image = self.transform(image)
-        else:
-            image = transforms.ToTensor()(image)
-        return image, self.labels[idx]
+        img_tensor = self.transform(image)
+        return img_tensor, self.labels[idx]
 
 
 def _train_transform() -> transforms.Compose:
