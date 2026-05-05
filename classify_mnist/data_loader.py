@@ -29,12 +29,12 @@ _MNIST_FILES: dict[str, str] = {
 
 # IDX 数据类型码 → numpy dtype 映射
 _IDX_DTYPE_MAP: dict[int, np.dtype] = {
-    0x08: np.uint8,
-    0x09: np.int8,
-    0x0B: np.int16,
-    0x0C: np.int32,
-    0x0D: np.float32,
-    0x0E: np.float64,
+    0x08: np.dtype(np.uint8),
+    0x09: np.dtype(np.int8),
+    0x0B: np.dtype(np.int16),
+    0x0C: np.dtype(np.int32),
+    0x0D: np.dtype(np.float32),
+    0x0E: np.dtype(np.float64),
 }
 
 
@@ -171,57 +171,3 @@ def load_mnist(
     X_test = X_test_raw.reshape(X_test_raw.shape[0], -1).astype(np.float64) / 255.0
 
     return X_train, y_train, X_test, y_test
-
-
-def load_mnist_cnn(
-    cache_dir: str = "./mnist_data",
-    n_train: int | None = None,
-    n_test: int | None = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """加载 MNIST 数据集，返回适合 CNN 输入的 4D 图像格式。
-
-    保持原始 2D 空间结构 (N, 1, 28, 28)，支持截取子集以加速训练。
-
-    Args:
-        cache_dir: 数据文件缓存目录。
-        n_train: 训练集采样数。None 表示全部（60000）。
-        n_test: 测试集采样数。None 表示全部（10000）。
-
-    Returns:
-        (X_train, y_train, X_test, y_test)
-        X_train 形状 (n_train, 1, 28, 28)，像素值范围 [0, 1]。
-        X_test  形状 (n_test, 1, 28, 28)，像素值范围 [0, 1]。
-    """
-    os.makedirs(cache_dir, exist_ok=True)
-
-    mirrors = list(_MNIST_MIRRORS)
-    paths: dict[str, str] = {}
-    for key, filename in _MNIST_FILES.items():
-        paths[key] = _try_download(filename, cache_dir, mirrors)
-
-    X_train_raw = _parse_idx(paths["train_images"])
-    y_train = _parse_idx(paths["train_labels"])
-    X_test_raw = _parse_idx(paths["test_images"])
-    y_test = _parse_idx(paths["test_labels"])
-
-    # 采样
-    rng = np.random.default_rng(42)
-    X_train_sub = X_train_raw
-    y_train_sub = y_train
-    if n_train is not None:
-        idx = rng.choice(len(X_train_raw), size=n_train, replace=False)
-        X_train_sub = X_train_raw[idx]
-        y_train_sub = y_train[idx]
-
-    X_test_sub = X_test_raw
-    y_test_sub = y_test
-    if n_test is not None:
-        idx = rng.choice(len(X_test_raw), size=n_test, replace=False)
-        X_test_sub = X_test_raw[idx]
-        y_test_sub = y_test[idx]
-
-    # 转为 (N, 1, 28, 28) 并归一化
-    X_train = X_train_sub[:, np.newaxis, :, :].astype(np.float32) / 255.0
-    X_test = X_test_sub[:, np.newaxis, :, :].astype(np.float32) / 255.0
-
-    return X_train, y_train_sub, X_test, y_test_sub

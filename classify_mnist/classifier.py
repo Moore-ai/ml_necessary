@@ -1,128 +1,130 @@
-"""CNN 分类器模块（基于 PyTorch）。
+"""LogisticRegression 分类器模块。
 
-使用两层卷积 + 全连接网络对 MNIST 手写数字进行分类。
+多项逻辑回归（Softmax 回归），适合与 PCA 降维配合使用。
 """
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 
-class _CNN(nn.Module):
-    """内部 CNN 网络结构。
+def _one_hot(y: np.ndarray, n_classes: int) -> np.ndarray:
+    """将标签向量转换为 one-hot 矩阵。
 
-    输入: (batch, 1, 28, 28)
-    输出: (batch, 10) 的 logits
+    Args:
+        y: 标签，形状 (n_samples,)。
+        n_classes: 类别总数。
 
-    结构:
-      Conv1(1→32, 3×3) → ReLU → MaxPool(2×2)
-      Conv2(32→64, 3×3) → ReLU → MaxPool(2×2)
-      FC(1600→128) → ReLU → FC(128→10)
+    Returns:
+        One-hot 矩阵，形状 (n_samples, n_classes)。
     """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(64 * 5 * 5, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))   # 28→26→13
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))   # 13→11→5
-        x = x.view(x.size(0), -1)                     # → (batch, 1600)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+    one_hot = np.zeros((y.shape[0], n_classes), dtype=np.float64)
+    one_hot[np.arange(y.shape[0]), y] = 1.0
+    return one_hot
 
 
-class CNNClassifier:
-    """CNN 手写数字分类器。
+class LogisticRegression:
+    """Softmax 回归（多项逻辑回归）分类器。
 
-    封装 PyTorch CNN 模型的训练与预测接口。
-    支持 GPU 自动切换（CUDA 可用时优先使用 GPU）。
+    使用 L2 正则化的交叉熵损失，mini-batch 梯度下降优化。
+    适合与 PCA 降维配合使用（输入为特征向量）。
 
     Attributes:
-        batch_size: 训练批大小。
-        epochs: 训练轮数。
-        lr: 学习率。
+        W_: 权重矩阵，形状 (n_features, n_classes)。
+        b_: 偏置向量，形状 (n_classes,)。
+        n_classes_: 类别数。
     """
 
     def __init__(
         self,
-        batch_size: int = 64,
-        epochs: int = 10,
-        lr: float = 0.001,
+        learning_rate: float = 0.1,
+        max_iter: int = 200,
+        batch_size: int = 256,
+        reg_strength: float = 1e-4,
     ):
-        """初始化 CNN 分类器。
+        """初始化 Softmax 回归分类器。
 
         Args:
-            batch_size: 训练批大小。
-            epochs: 训练轮数。
-            lr: Adam 优化器学习率。
+            learning_rate: 梯度下降学习率。
+            max_iter: 最大迭代轮数（epoch）。
+            batch_size: 每批样本数。
+            reg_strength: L2 正则化系数。
         """
+        self.learning_rate = learning_rate
+        self.max_iter = max_iter
         self.batch_size = batch_size
-        self.epochs = epochs
-        self.lr = lr
-        self._model: _CNN | None = None
-        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.reg_strength = reg_strength
+        self.W_: np.ndarray | None = None
+        self.b_: np.ndarray | None = None
+        self.n_classes_: int = 0
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
-        """在数据 X, y 上训练 CNN。
+        """在数据 X, y 上训练 Softmax 回归。
 
         Args:
-            X: 图像数据，形状 (n_samples, 1, 28, 28)，float32 类型。
-            y: 标签，形状 (n_samples,)，整数类型。
+            X: 训练数据，形状 (n_samples, n_features)。
+            y: 训练标签，形状 (n_samples,)。
         """
-        self._model = _CNN().to(self._device)
-        optimizer = torch.optim.Adam(self._model.parameters(), lr=self.lr)
+        n_samples, n_features = X.shape
+        self.n_classes_ = int(np.max(y) + 1)
 
-        X_t = torch.from_numpy(X).to(self._device)
-        y_t = torch.from_numpy(y).to(self._device)
+        rng = np.random.default_rng(42)
+        scale = np.sqrt(2.0 / n_features)
 
-        dataset = torch.utils.data.TensorDataset(X_t, y_t)
-        loader = torch.utils.data.DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=True
+        # 使用本地变量避免 Optional 类型窄化问题
+        W: np.ndarray = rng.normal(0, scale, size=(n_features, self.n_classes_)).astype(
+            np.float64
         )
+        b: np.ndarray = np.zeros(self.n_classes_, dtype=np.float64)
+        self.W_ = W
+        self.b_ = b
 
-        self._model.train()
-        for epoch in range(1, self.epochs + 1):
-            total_loss = 0.0
-            for X_batch, y_batch in loader:
-                optimizer.zero_grad()
-                logits = self._model(X_batch)
-                loss = F.cross_entropy(logits, y_batch)
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
+        n_batches = max(1, n_samples // self.batch_size)
 
-            if epoch == 1 or epoch % 5 == 0:
-                avg_loss = total_loss / len(loader)
-                print(f"     epoch {epoch:>3d}/{self.epochs}  loss={avg_loss:.4f}")
+        for epoch in range(self.max_iter):
+            indices = rng.permutation(n_samples)
+            X_shuffled = X[indices]
+            y_shuffled = y[indices]
 
-    @torch.no_grad()
+            for i in range(n_batches):
+                start = i * self.batch_size
+                end = min(start + self.batch_size, n_samples)
+                X_batch = X_shuffled[start:end]
+                y_batch = y_shuffled[start:end]
+
+                logits = X_batch @ W + b
+                logits -= np.max(logits, axis=1, keepdims=True)
+                exp_logits = np.exp(logits)
+                probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+
+                y_onehot = _one_hot(y_batch, self.n_classes_)
+                grad = (probs - y_onehot) / len(y_batch)
+                dW = X_batch.T @ grad + self.reg_strength * W
+                db = np.sum(grad, axis=0)
+
+                W -= self.learning_rate * dW
+                b -= self.learning_rate * db
+
+        self.W_ = W
+        self.b_ = b
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         """预测新样本的类别。
 
         Args:
-            X: 图像数据，形状 (n_samples, 1, 28, 28)。
+            X: 待预测数据，形状 (n_samples, n_features)。
 
         Returns:
             预测标签，形状 (n_samples,)。
         """
-        if self._model is None:
-            raise RuntimeError("模型尚未训练，请先调用 fit 方法。")
-        self._model.eval()
-        X_t = torch.from_numpy(X).to(self._device)
-        logits = self._model(X_t)
-        return logits.argmax(dim=1).cpu().numpy()
+        if self.W_ is None or self.b_ is None:
+            raise RuntimeError("模型尚未拟合，请先调用 fit 方法。")
+        logits = X @ self.W_ + self.b_
+        return np.argmax(logits, axis=1)
 
     def score(self, X: np.ndarray, y: np.ndarray) -> float:
         """计算分类准确率。
 
         Args:
-            X: 测试数据，形状 (n_samples, 1, 28, 28)。
+            X: 测试数据，形状 (n_samples, n_features)。
             y: 真实标签，形状 (n_samples,)。
 
         Returns:
