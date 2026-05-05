@@ -1,0 +1,4 @@
+mnist_data/
+.claude/
+venv/
+__pycache__/
